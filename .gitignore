@@ -3,3 +3,4 @@ model.ipynb
 __pycache__/
 .hypothesis/
 .pytest_cache/
+compest.egg-info/

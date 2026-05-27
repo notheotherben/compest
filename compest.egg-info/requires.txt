@@ -1,7 +1,0 @@
-ipykernel
-matplotlib
-pandas
-
-[dev]
-pytest>=8
-hypothesis>=6
