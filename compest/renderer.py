@@ -1,5 +1,6 @@
 from .currency import avg_currency
-from .models import Job, assert_currency
+from .models import assert_currency
+from .job import Job
 
 import pandas as pd
 import matplotlib.pyplot as plt

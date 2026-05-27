@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from math import log10
-from typing import Union, Self
+from typing import Union, Iterator, Generator
 from collections.abc import Callable
 
 class StoreOfValue:
@@ -164,3 +164,13 @@ def avg_currency(values: list[Currency]) -> Currency:
     if not values:
         raise ValueError("Cannot average an empty list of currencies")
     return assert_currency(sum_currency(values) / len(values))
+
+def repeat[T: StoreOfValue](value: T) -> Iterator[T]:
+    while True:
+        yield value
+
+def growth_adjusted(percent_per_annum: float, values: Iterator[Currency]) -> Generator[Currency, None, None]:
+    multiplier = 1.0
+    for value in values:
+        yield value * multiplier
+        multiplier *= 1 + (percent_per_annum / 100)

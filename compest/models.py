@@ -1,8 +1,11 @@
-from abc import ABC, abstractmethod
-from typing import cast, Dict, Generator, Iterator, List, Optional, Tuple, Union
 from .currency import *
 from .equity import *
 
+from abc import ABC, abstractmethod
+from typing import Iterator, List, Optional, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .company import Company
 class NetWorth:
     def __init__(self, cash: Currency = Currency(0), equity: list[Equity]|None = None):
         self.cash = cash
@@ -61,7 +64,6 @@ class OneOffStockGrant(ValueSource):
         yield Equity(0, self.price(0))
         for _ in range(self.vesting_period):
             yield Equity(self.shares / self.vesting_period, self.price(0))
-
 class PreviousStockGrant(OneOffStockGrant):
     def __init__(self, shares: float, years_vested: int, vesting_period: int, company: 'Company'):
         super().__init__(assert_currency(company.share_price * shares), vesting_period, company)
@@ -120,110 +122,3 @@ class Salary(ValueSource):
             pension = salary * (self.pension_percent / 100)
             yield assert_currency(salary + bonus + pension + self.additional_cash)
             multiplier *= 1 + (self.annual_growth_percent / 100)
-
-def repeat[T: StoreOfValue](value: T) -> Iterator[T]:
-    while True:
-        yield value
-
-def growth_adjusted(percent_per_annum: float, values: Iterator[Currency]) -> Generator[Currency, None, None]:
-    multiplier = 1.0
-    for value in values:
-        yield value * multiplier
-        multiplier *= 1 + (percent_per_annum / 100)
-
-class Company:
-    def __init__(self, name: str, valuation: Currency, share_price: Currency, growth_percent: float, vesting_period: int = 4):
-        self.name = name
-        self.share_price = share_price
-        self.valuation = valuation
-        self.growth_percent = growth_percent
-        self.vesting_period = vesting_period
-
-    def share_prices(self) -> Iterator[Currency]:
-        return growth_adjusted(self.growth_percent, repeat(self.share_price))
-    
-    def share_price_after(self, year: int) -> Currency:
-        return self.share_price.compound(self.growth_percent / 100, year)
-
-    def valuations(self) -> Iterator[StoreOfValue]:
-        return growth_adjusted(self.growth_percent, repeat(self.valuation))
-    
-    def valuation_after(self, year: int) -> Currency:
-        return self.valuation.compound(self.growth_percent / 100, year)
-    
-    def shares(self, value: Currency) -> Equity:
-        return Equity(assert_number(value / self.share_price), self.share_price(0))
-    
-    def options(self, value: Currency, strike_price: Currency) -> Equity:
-        shares = assert_number(value / self.share_price)
-        return Equity(shares, assert_currency(strike_price * shares))
-    
-    def options_grant(self, value: Currency, strike_price: Currency, dilution_percent: float = 30):
-        return OptionGrant(value, self.vesting_period, self.share_price, strike_price, dilution_percent=dilution_percent)
-    
-    def one_off_stock_grant(self, value: Currency, vesting_years: int|None = None):
-        return OneOffStockGrant(value, vesting_period=vesting_years or self.vesting_period, company=self)
-    
-    def previous_stock_grant(self, shares: float, years_vested: int, vesting_years: int|None = None):
-        return PreviousStockGrant(shares, years_vested, vesting_period=vesting_years or self.vesting_period, company=self)
-    
-    def annual_stock_grant(self, value: Currency, vesting_years: int|None = None):
-        return AnnualStockGrant(value, vesting_period=vesting_years or self.vesting_period, company=self)
-    
-    def stock_refresher(self, value: Currency, vesting_years: int|None = None, after_years: int = 3, vesting_after_years: int|None = None):
-        return ShareRefresher(value, after_years=after_years, vesting_period=vesting_years or self.vesting_period, vesting_after_years=vesting_after_years or self.vesting_period, company=self)
-
-class Job:
-    def __init__(self, name: str, company: Company, *value_sources: ValueSource):
-        self.name = name
-        self.company = company
-        self.value_sources = value_sources
-
-    def payouts(self) -> Iterator[NetWorth]:
-        sources: List[Tuple[ValueSource, Iterator[StoreOfValue]]] = []
-        for source in self.value_sources:
-            sources.append((source, source.payouts()))
-
-        year = 0
-        while True:
-            total = NetWorth()
-            
-            for (source, payouts) in list(sources):
-                value = next(payouts, None)
-                if value is None:
-                    sources.remove((source, payouts))
-                    continue
-                else:
-                    total += value
-
-            for source in self.value_sources:
-                granted = source.next_year(year)
-                if granted is not None:
-                    sources.append((granted, granted.payouts()))
-
-            yield total
-            year += 1
-    
-    def annual_compensation(self) -> Iterator[Currency]:
-        for payout, share_value in zip(self.payouts(), self.company.share_prices()):
-            yield payout.sell_equity(share_value)
-
-    def annual_compensation_after(self, year: int) -> Currency:
-        iter = self.annual_compensation()
-        for _ in range(year):
-            next(iter)
-
-        return next(iter)
-
-    def cumulative_value(self) -> Iterator[Currency]:
-        total = NetWorth()
-        for payout, share_value in zip(self.payouts(), self.company.share_prices()):
-            total += payout
-            yield total.sell_equity(share_value)
-
-    def cumulative_value_after(self, year: int) -> Currency:
-        iter = self.cumulative_value()
-        for _ in range(year):
-            next(iter)
-
-        return next(iter)
