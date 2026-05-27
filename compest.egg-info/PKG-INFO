@@ -20,3 +20,208 @@ schedules, one-off grants, performance bonuses, and several other complicating f
 the true value of a job offer.
 
 **NOTE**: This project comes with absolutely no guarantees of accuracy and may give you wildly incorrect results. Seek the advice of a professional financial advisor and do your own research before making decisions.
+
+---
+
+## Quick start
+
+A compensation model is built from two main building blocks:
+
+1. A [`Company`](#company) - describes the employer's share price, valuation and assumed annual growth rate.
+2. A [`Job`](#job) - combines a `Company` with one or more [`ValueSource`](#value-sources) instances (a salary, stock grants, option grants, refreshers, ...).
+
+Once you have a `Job` you can ask it for the compensation earned in a single year or the cumulative compensation accumulated over a number of years.
+
+```python
+from compest import Company, Currency, Job, Salary
+
+# All currencies are typed so different symbols can't be mixed silently.
+usd = Currency(0, "$")
+
+acme = Company(
+    name="Acme",
+    valuation=usd(50_000_000),
+    share_price=usd(10),
+    growth_percent=10,      # assumed annual growth rate, in percent
+    vesting_period=4,        # default vesting period for grants from this company
+)
+
+job = Job(
+    "Senior Engineer",
+    acme,
+    Salary(
+        annual=usd(150_000),
+        additional_cash=usd(0),
+        bonus_percent=10,
+        annual_growth_percent=5,
+    ),
+    acme.one_off_stock_grant(usd(400_000)),  # 4-year vest at the company default
+    acme.annual_stock_grant(usd(100_000)),   # fresh $100k grant every year
+)
+
+# Total compensation accumulated by the end of year 4 (equity revalued at the
+# projected year-4 share price).
+print(job.cumulative_value_after(4))
+
+# Just the compensation earned during year 4 alone.
+print(job.annual_compensation_after(4))
+
+# Or stream values year-by-year for plotting / further analysis:
+from itertools import islice
+for year, comp in enumerate(islice(job.annual_compensation(), 5)):
+    print(f"Year {year}: {comp}")
+```
+
+---
+
+## How the simulation works
+
+Every `Job.payouts()` step represents **one simulated year**. During each step the job:
+
+1. Pulls the next payout from every active `ValueSource` (cash from `Salary`, equity from a stock or option grant, or nothing from a `ShareRefresher`).
+2. Combines them into a `NetWorth` (cash + a list of `Equity` positions) for that year.
+3. Asks each source whether it wants to spawn a new follow-up grant (this is how `AnnualStockGrant` issues a fresh grant each year, and how `ShareRefresher` issues a new grant on its cadence).
+
+`Job.annual_compensation()` then values that year's `NetWorth` at the company's projected share price for **that year**, and `Job.cumulative_value()` does the same against the running total. Because equity is revalued each year, share-price growth retroactively increases the value of previously-vested equity.
+
+Most grant types yield a zero-share *placeholder* for year 0 and then begin vesting in year 1, mirroring the typical "1-year cliff" timing. The exception is [`PreviousStockGrant`](#previousstockgrant), which represents equity that started vesting **before** the simulation began.
+
+---
+
+## Company
+
+`Company` is the central object: it captures the share-price model and acts as the factory for every kind of grant. Always prefer constructing grants via the `Company` factory methods - they wire up the share price, growth rate and default vesting period automatically.
+
+| Method | Returns | Use for |
+| ------ | ------- | ------- |
+| `Company.share_price_after(year)` / `Company.share_prices()` | `Currency` / iterator | Project the share price at a single year or as an infinite stream. |
+| `Company.valuation_after(year)` / `Company.valuations()` | `Currency` / iterator | Project the total company valuation. |
+| `Company.shares(value)` | `Equity` | Convert a cash amount into shares you already own outright. |
+| `Company.options(value, strike_price)` | `Equity` | Convert a cash amount into an options position with an exercise cost. |
+| `Company.one_off_stock_grant(value, vesting_years=None)` | [`OneOffStockGrant`](#oneoffstockgrant) | A single grant (e.g. a sign-on grant) that vests over `vesting_years`. |
+| `Company.previous_stock_grant(shares, years_vested, vesting_years=None)` | [`PreviousStockGrant`](#previousstockgrant) | An existing grant that's already partially vested. |
+| `Company.annual_stock_grant(value, vesting_years=None)` | [`AnnualStockGrant`](#annualstockgrant) | A fresh grant issued every single year. |
+| `Company.stock_refresher(value, vesting_years=None, after_years=3, vesting_after_years=None)` | [`ShareRefresher`](#sharerefresher) | A grant issued on a recurring multi-year cadence. |
+| `Company.options_grant(value, strike_price, dilution_percent=30)` | [`OptionGrant`](#optiongrant) | A vesting options grant with an assumed dilution. |
+
+---
+
+## Job
+
+A `Job` ties a `Company` together with any number of `ValueSource` instances and provides four ways to extract numbers from the simulation:
+
+| Method | Description |
+| ------ | ----------- |
+| `Job.payouts()` | Infinite iterator of per-year `NetWorth` deltas (raw cash + equity contributions). |
+| `Job.annual_compensation()` | Infinite iterator of the **dollar value earned each year**, with equity valued at that year's projected share price. |
+| `Job.annual_compensation_after(year)` | Convenience accessor for a single year of `annual_compensation()`. |
+| `Job.cumulative_value()` | Infinite iterator of the **running total** dollar value, with all accumulated equity revalued at that year's projected share price. |
+| `Job.cumulative_value_after(year)` | Convenience accessor for a single year of `cumulative_value()`. |
+
+Year indices are 0-based, so `annual_compensation_after(0)` returns the compensation earned in the first modelled year.
+
+---
+
+## Value sources
+
+A `ValueSource` is anything that produces compensation over time. Each implementation models a different real-world compensation construct. All of them are designed to be combined freely inside a single `Job`.
+
+### `Salary`
+
+```python
+Salary(
+    annual=usd(150_000),
+    additional_cash=usd(5_000),   # flat amount, NOT subject to annual growth
+    bonus_percent=10,             # % of (grown) base salary
+    pension_percent=5,            # % of (grown) base salary
+    annual_growth_percent=5,      # base-salary merit increase per year
+)
+```
+
+Each year yields a single cash payout of `salary + bonus + pension + additional_cash`, where `salary` compounds at `annual_growth_percent` from year to year. Bonus and pension percentages are applied to the *current* (grown) salary, so they compound implicitly with the base. The `additional_cash` term is constant - use it for fixed allowances or sign-on amounts that don't scale with merit increases.
+
+### `OneOffStockGrant`
+
+Constructed via `company.one_off_stock_grant(value, vesting_years=None)`.
+
+A single grant. Yields a zero-share placeholder for year 0 followed by `vesting_period` equal tranches of `value / share_price / vesting_period` shares. The share count is fixed at construction time; the *value* of those shares each year follows the company's share-price growth. Use this for sign-on grants, single refreshers, or any other grant that's issued once and then vests.
+
+For a grant that started before the simulation began, use [`PreviousStockGrant`](#previousstockgrant) instead of truncating a `OneOffStockGrant` - it expresses the original grant in share count (matching how grants are usually documented) and correctly emits only the remaining tranches.
+
+### `PreviousStockGrant`
+
+Constructed via `company.previous_stock_grant(shares, years_vested, vesting_years=None)`.
+
+Represents historical equity that has been partially vested before the simulation starts. Skips the year-0 placeholder and emits `vesting_period - years_vested` remaining tranches of `shares / vesting_period`. This is the right tool when modelling a job change where you want to credit the unvested portion of an existing grant.
+
+### `AnnualStockGrant`
+
+Constructed via `company.annual_stock_grant(value, vesting_years=None)`.
+
+Issues a fresh grant **every year** at the share price projected for that year. Each individual grant then vests over `vesting_period` years using the standard `OneOffStockGrant` schedule, producing overlapping vesting schedules. In steady state (after `vesting_period` years) the employee is vesting one full grant per year.
+
+Because each annual grant is priced at the share price of its issue year, the *dollar* value of each grant stays roughly constant but the share count varies inversely with growth in the share price.
+
+If grants are issued on a longer cadence (e.g. every 4 years rather than every year), use [`ShareRefresher`](#sharerefresher) instead.
+
+### `ShareRefresher`
+
+Constructed via `company.stock_refresher(value, vesting_years=None, after_years=3, vesting_after_years=None)`.
+
+Issues a single new grant on a recurring cadence: every `vesting_after_years` years (whenever `(year + 1) % vesting_after_years == 0` and `year > 0`) the refresher spawns a `OneOffStockGrant`. The grant is back-dated by `vesting_after_years - after_years` years for pricing purposes, which models the common pattern where a refresher granted late in one vesting cycle is actually priced at an earlier review date.
+
+For grants that should be issued every single year, use [`AnnualStockGrant`](#annualstockgrant) instead.
+
+### `OptionGrant`
+
+Constructed via `company.options_grant(value, strike_price, dilution_percent=30)`.
+
+A grant of **stock options** rather than fully-paid shares. The underlying share count is `value / preferred_price`; each vesting tranche is then reduced by `dilution_percent` (to approximate future dilution) and carries an exercise cost of `strike_price * tranche_shares`. When the equity is later valued, the exercise cost is subtracted, so the option's net value is `share_price * shares - exercise_cost`.
+
+Like `OneOffStockGrant`, a zero-share placeholder is yielded for year 0 so vesting begins in year 1.
+
+---
+
+## Choosing the right grant model
+
+| Real-world situation | Use this |
+| -------------------- | -------- |
+| Sign-on grant that starts vesting at job start | [`OneOffStockGrant`](#oneoffstockgrant) (via `company.one_off_stock_grant`) |
+| Existing grant from a previous role, partially vested | [`PreviousStockGrant`](#previousstockgrant) (via `company.previous_stock_grant`) |
+| Annual review grant issued every year | [`AnnualStockGrant`](#annualstockgrant) (via `company.annual_stock_grant`) |
+| Single refresher issued on a multi-year cycle | [`ShareRefresher`](#sharerefresher) (via `company.stock_refresher`) |
+| Stock options with a strike price and assumed dilution | [`OptionGrant`](#optiongrant) (via `company.options_grant`) |
+| Salary, bonus, pension, fixed cash allowances | [`Salary`](#salary) |
+
+---
+
+## Putting it all together
+
+```python
+from itertools import islice
+from compest import Company, Currency, Job, Salary
+
+usd = Currency(0, "$")
+
+acme = Company("Acme", usd(50_000_000), usd(10), growth_percent=10, vesting_period=4)
+
+# An offer with: salary + sign-on grant + an existing partially-vested grant
+# from a previous role + an annual refresher cadence.
+job = Job(
+    "Senior Engineer",
+    acme,
+    Salary(annual=usd(180_000), additional_cash=usd(0), bonus_percent=15, annual_growth_percent=4),
+    acme.one_off_stock_grant(usd(400_000)),
+    acme.previous_stock_grant(shares=2_000, years_vested=1),
+    acme.stock_refresher(usd(150_000), after_years=3, vesting_after_years=4),
+)
+
+print(f"Year-4 total comp: {job.cumulative_value_after(4)}")
+print(f"Year-4 annual comp: {job.annual_compensation_after(4)}")
+
+for year, comp in enumerate(islice(job.annual_compensation(), 6)):
+    print(f"  Year {year}: {comp}")
+```
+
+See [`model.example.ipynb`](./model.example.ipynb) for a fuller end-to-end example, including comparing multiple offers and rendering the results with the helpers in [`compest.renderer`](./compest/renderer.py).
+
