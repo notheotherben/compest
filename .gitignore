@@ -1,3 +1,5 @@
 model.ipynb
 .direnv
 __pycache__/
+.hypothesis/
+.pytest_cache/
