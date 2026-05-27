@@ -1,0 +1,22 @@
+Metadata-Version: 2.4
+Name: compest
+Version: 0.1.0
+Summary: A model for comparing compensation offers over time, accounting for growth and equity.
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: ipykernel
+Requires-Dist: matplotlib
+Requires-Dist: pandas
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: hypothesis>=6; extra == "dev"
+
+# Estimate Compensation
+
+**A Jupyter notebook and series of supporting Python classes to simplify the process of estimating compensation for a new job.**
+
+This project attempts to calculate cumulative value estimates with compounding growth, variable share and options vesting
+schedules, one-off grants, performance bonuses, and several other complicating factors that can make it difficult to assess
+the true value of a job offer.
+
+**NOTE**: This project comes with absolutely no guarantees of accuracy and may give you wildly incorrect results. Seek the advice of a professional financial advisor and do your own research before making decisions.
