@@ -9,3 +9,13 @@ dependencies = [
     "matplotlib",
     "pandas",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["*_tests.py"]
