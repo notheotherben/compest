@@ -4,8 +4,8 @@ from .currency import *
 from .equity import *
 
 class NetWorth:
-    def __init__(self, cash: Currency|None = None, equity: list[Equity]|None = None):
-        self.cash = assert_currency(cash or Currency(0))
+    def __init__(self, cash: Currency = Currency(0), equity: list[Equity]|None = None):
+        self.cash = cash
         self.equity: List[Equity] = equity or []
 
 
@@ -58,9 +58,9 @@ class OneOffStockGrant(ValueSource):
         self.company = company
 
     def payouts(self) -> Iterator[StoreOfValue]:
-        yield Equity(0)
+        yield Equity(0, self.price(0))
         for _ in range(self.vesting_period):
-            yield Equity(self.shares / self.vesting_period)
+            yield Equity(self.shares / self.vesting_period, self.price(0))
 
 class PreviousStockGrant(OneOffStockGrant):
     def __init__(self, shares: float, years_vested: int, vesting_period: int, company: 'Company'):
@@ -69,9 +69,9 @@ class PreviousStockGrant(OneOffStockGrant):
         self.years_vested = years_vested
 
     def payouts(self) -> Iterator[StoreOfValue]:
-        yield Equity(self.shares / self.vesting_period)
+        yield Equity(self.shares / self.vesting_period, self.price(0))
         for _ in range(self.vesting_period - self.years_vested):
-            yield Equity(self.shares / self.vesting_period)
+            yield Equity(self.shares / self.vesting_period, self.price(0))
 class AnnualStockGrant(OneOffStockGrant):
     def next_year(self, year: int) -> Optional[ValueSource]:
         return AnnualStockGrant(self.value, self.vesting_period, self.company, price=self.company.share_price_after(year))
@@ -100,16 +100,16 @@ class OptionGrant(ValueSource):
         self.dilution_percent = dilution_percent
     
     def payouts(self) -> Iterator[StoreOfValue]:
-        yield Equity(0)
+        yield Equity(0, self.strike_price(0))
         for _ in range(self.vesting_period):
             yield Equity(self.shares / self.vesting_period * (1 - self.dilution_percent / 100),  self.strike_price * (self.shares / self.vesting_period))
 
 class Salary(ValueSource):
-    def __init__(self, annual: Currency, bonus_percent: float = 0, pension_percent: float = 0, additional_cash: Currency = Currency(0), annual_growth_percent: float = 0):
+    def __init__(self, annual: Currency, additional_cash: Currency, bonus_percent: float = 0, pension_percent: float = 0, annual_growth_percent: float = 0):
         self.annual = annual
+        self.additional_cash = additional_cash
         self.bonus_percent = bonus_percent
         self.pension_percent = pension_percent
-        self.additional_cash = additional_cash
         self.annual_growth_percent = annual_growth_percent
 
     def payouts(self) -> Iterator[StoreOfValue]:
@@ -152,7 +152,7 @@ class Company:
         return self.valuation.compound(self.growth_percent / 100, year)
     
     def shares(self, value: Currency) -> Equity:
-        return Equity(assert_number(value / self.share_price))
+        return Equity(assert_number(value / self.share_price), self.share_price(0))
     
     def options(self, value: Currency, strike_price: Currency) -> Equity:
         shares = assert_number(value / self.share_price)

@@ -13,9 +13,9 @@ def summarize_offers(offer_groups: dict[str, list[Job]], years: int = 4):
         low_ball = offers[0].cumulative_value_after(years)
         high_ball = offers[-1].cumulative_value_after(years)
         low_ball, high_ball = min(low_ball, high_ball), max(low_ball, high_ball)
-        mid_ball = offers[1].cumulative_value_after(years) if len(offers) > 2 else (high_ball + low_ball)/2
-        share_price = offers[0].company.share_price_after(years)
-        valuation = offers[0].company.valuation_after(years)
+        mid_ball = avg_currency([offer.cumulative_value_after(years) for offer in offers])
+        share_price = avg_currency([offer.company.share_price_after(years) for offer in offers])
+        valuation = avg_currency([offer.company.valuation_after(years) for offer in offers])
 
         return (offers[0].company.name, group, low_ball, assert_currency(mid_ball), high_ball, share_price, valuation)
 
@@ -34,7 +34,7 @@ def render_cumulative_compensation(offer_groups: dict[str, list[Job]], years: in
         if len(offers) == 1:
             comp.plot(list(range(0, years + 1)), list(val.value for _, val in zip(range(years+1), offers[0].cumulative_value())), label=group, linestyle='-')
             for year, val in zip(range(0, years), offers[0].cumulative_value()):
-                comp.annotate(f"{val.to_eur()}", xy=(year, val.value), **ANNOTATION_STYLE)
+                comp.annotate(f"{val}", xy=(year, val.value), **ANNOTATION_STYLE)
         else:
             comp.fill_between(
                 list(range(0, years + 1)),
@@ -44,19 +44,19 @@ def render_cumulative_compensation(offer_groups: dict[str, list[Job]], years: in
             
             for year in range(years):
                 mid_ball = avg_currency([offer.cumulative_value_after(year) for offer in offers])
-                comp.annotate(f"{mid_ball.to_eur()}", xy=(year, mid_ball.value), **ANNOTATION_STYLE)
+                comp.annotate(f"{mid_ball}", xy=(year, mid_ball.value), **ANNOTATION_STYLE)
 
 
         low_ball = offers[0].cumulative_value_after(years)
         high_ball = offers[-1].cumulative_value_after(years)
         low_ball, high_ball = min(low_ball, high_ball), max(low_ball, high_ball)
-        mid_ball = offers[1].cumulative_value_after(years) if len(offers) > 2 else assert_currency((high_ball + low_ball)/2)
-        valuation = offers[0].company.valuation_after(years)
+        mid_ball = avg_currency([offer.cumulative_value_after(years) for offer in offers])
+        valuation = avg_currency([offer.company.valuation_after(years) for offer in offers])
 
         if low_ball == high_ball:
-            comp.annotate(f"{group}\n{low_ball.to_eur()}\n{valuation}", xy=(years, mid_ball.value), **ANNOTATION_STYLE)
+            comp.annotate(f"{group}\n{low_ball}\n{valuation}", xy=(years, mid_ball.value), **ANNOTATION_STYLE)
         else:
-            comp.annotate(f"{group}\n{low_ball.to_eur()} - {high_ball.to_eur()}\n{valuation}", xy=(years, mid_ball.value), **ANNOTATION_STYLE)
+            comp.annotate(f"{group}\n{low_ball} - {high_ball}\n{valuation}", xy=(years, mid_ball.value), **ANNOTATION_STYLE)
 
     return fig, comp
 
@@ -70,8 +70,8 @@ def render_annual_compensation(offer_groups: dict[str, list[Job]], years: int = 
     for group, offers in offer_groups.items():
         if len(offers) == 1:
             comp.plot(list(range(0, years + 1)), list(val.value for _, val in zip(range(years+1), offers[0].annual_compensation())), label=group, linestyle='-')
-            for year, val in zip(range(years), offers[0].annual_compensation()):
-                comp.annotate(f"{val.to_eur()}", xy=(year, val.value), **ANNOTATION_STYLE)
+            for year, val in zip(range(0, years), offers[0].annual_compensation()):
+                comp.annotate(f"{val}", xy=(year, val.value), **ANNOTATION_STYLE)
         else:
             comp.fill_between(
                 list(range(0, years + 1)),
@@ -81,7 +81,7 @@ def render_annual_compensation(offer_groups: dict[str, list[Job]], years: int = 
             
             for year in range(0, years):
                 mid_ball = avg_currency([offer.annual_compensation_after(year) for offer in offers])
-                comp.annotate(f"{mid_ball.to_eur()}", xy=(year, mid_ball.value), **ANNOTATION_STYLE)
+                comp.annotate(f"{mid_ball}", xy=(year, mid_ball.value), **ANNOTATION_STYLE)
 
         low_ball = offers[0].annual_compensation_after(years)
         high_ball = offers[-1].annual_compensation_after(years)
@@ -91,9 +91,9 @@ def render_annual_compensation(offer_groups: dict[str, list[Job]], years: int = 
         valuation_suffix = ""
 
         if low_ball == high_ball:
-            comp.annotate(f"{group}\n{low_ball.to_eur()}{valuation_suffix}", xy=(years, mid_ball.value), **ANNOTATION_STYLE)
+            comp.annotate(f"{group}\n{low_ball}{valuation_suffix}", xy=(years, mid_ball.value), **ANNOTATION_STYLE)
         else:
-            comp.annotate(f"{group}\n{low_ball.to_eur()} - {high_ball.to_eur()}{valuation_suffix}", xy=(years, mid_ball.value), **ANNOTATION_STYLE)
+            comp.annotate(f"{group}\n{low_ball} - {high_ball}{valuation_suffix}", xy=(years, mid_ball.value), **ANNOTATION_STYLE)
 
     return fig, comp
 
