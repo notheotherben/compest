@@ -1,0 +1,11 @@
+[project]
+name = "compest"
+version = "0.1.0"
+description = "A model for comparing compensation offers over time, accounting for growth and equity."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ipykernel",
+    "matplotlib",
+    "pandas",
+]
